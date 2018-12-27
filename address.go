@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/btcsuite/btcutil/bech32"
 	"golang.org/x/crypto/ripemd160"
@@ -133,7 +134,7 @@ type Address interface {
 // The bitcoin network the address is associated with is extracted if possible.
 // When the address does not encode the network, such as in the case of a raw
 // public key, the address will be associated with the passed defaultNet.
-func DecodeAddress(addr string, defaultNet *chaincfg.Params) (Address, error) {
+func DecodeAddress(addr string, defaultNet *chaincfg.Params) (btcutil.Address, error) {
 	// Bech32 encoded segwit addresses start with a human-readable part
 	// (hrp) followed by '1'. For Bitcoin mainnet the hrp is "bc", and for
 	// testnet it is "tb". If the address string has a prefix that matches
@@ -154,14 +155,18 @@ func DecodeAddress(addr string, defaultNet *chaincfg.Params) (Address, error) {
 				return nil, UnsupportedWitnessVerError(witnessVer)
 			}
 
+			// NOTE: No longer needed as we're using NewAddressWitnessPubKeyHash and
+			//       NewAddressWitnessScriptHash from btcutil which uses the hrp from
+			//       the defaultNet (dannypaz)
+			//
 			// The HRP is everything before the found '1'.
-			hrp := prefix[:len(prefix)-1]
+			// hrp := prefix[:len(prefix)-1]
 
 			switch len(witnessProg) {
 			case 20:
-				return newAddressWitnessPubKeyHash(hrp, witnessProg)
+				return btcutil.NewAddressWitnessPubKeyHash(witnessProg, defaultNet)
 			case 32:
-				return newAddressWitnessScriptHash(hrp, witnessProg)
+				return btcutil.NewAddressWitnessScriptHash(witnessProg, defaultNet)
 			default:
 				return nil, UnsupportedWitnessProgLenError(len(witnessProg))
 			}
@@ -175,7 +180,7 @@ func DecodeAddress(addr string, defaultNet *chaincfg.Params) (Address, error) {
 		if err != nil {
 			return nil, err
 		}
-		return NewAddressPubKey(serializedPubKey, defaultNet)
+		return btcutil.NewAddressPubKey(serializedPubKey, defaultNet)
 	}
 
 	// Switch on decoded length to determine the type.
@@ -190,13 +195,22 @@ func DecodeAddress(addr string, defaultNet *chaincfg.Params) (Address, error) {
 	case ripemd160.Size: // P2PKH or P2SH
 		isP2PKH := chaincfg.IsPubKeyHashAddrID(netID)
 		isP2SH := chaincfg.IsScriptHashAddrID(netID)
+
+		// If both isP2PKH and isP2SH are false, then we should try and check if the values
+		// match the current defaultNet config. If they do not match, then we can continue
+		// below.
+		if !isP2PKH && !isP2SH {
+			isP2PKH = (netID == defaultNet.PubKeyHashAddrID)
+			isP2SH = (netID == defaultNet.ScriptHashAddrID)
+		}
+
 		switch hash160 := decoded; {
 		case isP2PKH && isP2SH:
 			return nil, ErrAddressCollision
 		case isP2PKH:
-			return newAddressPubKeyHash(hash160, netID)
+			return btcutil.NewAddressPubKeyHash(hash160, defaultNet)
 		case isP2SH:
-			return newAddressScriptHashFromHash(hash160, netID)
+			return btcutil.NewAddressScriptHashFromHash(hash160, defaultNet)
 		default:
 			return nil, ErrUnknownAddressType
 		}

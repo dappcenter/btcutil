@@ -13,9 +13,30 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcutil"
+	utilbtc "github.com/btcsuite/btcutil"
+	"github.com/sparkswap/btcutil"
 	"golang.org/x/crypto/ripemd160"
 )
+
+type CustomParamStruct struct {
+	PubKeyHashAddrID byte
+	ScriptHashAddrID byte
+}
+
+var CustomParams = CustomParamStruct{
+	PubKeyHashAddrID: 0x30, // starts with L
+	ScriptHashAddrID: 0x32, // starts with M
+}
+
+// We use this function to be able to test functionality in DecodeAddress for
+// defaultNet addresses
+func applyCustomParams(params chaincfg.Params, customParams CustomParamStruct) chaincfg.Params {
+	params.PubKeyHashAddrID = customParams.PubKeyHashAddrID
+	params.ScriptHashAddrID = customParams.ScriptHashAddrID
+	return params
+}
+
+var customParams = applyCustomParams(chaincfg.MainNetParams, CustomParams)
 
 func TestAddresses(t *testing.T) {
 	tests := []struct {
@@ -63,6 +84,24 @@ func TestAddresses(t *testing.T) {
 				return btcutil.NewAddressPubKeyHash(pkHash, &chaincfg.MainNetParams)
 			},
 			net: &chaincfg.MainNetParams,
+		},
+		{
+			name:    "custom mainnet p2pkh",
+			addr:    "LM2WMpR1Rp6j3Sa59cMXMs1SPzj9eXpGc1",
+			encoded: "LM2WMpR1Rp6j3Sa59cMXMs1SPzj9eXpGc1",
+			valid:   true,
+			result: btcutil.TstAddressPubKeyHash(
+				[ripemd160.Size]byte{
+					0x13, 0xc6, 0x0d, 0x8e, 0x68, 0xd7, 0x34, 0x9f, 0x5b, 0x4c,
+					0xa3, 0x62, 0xc3, 0x95, 0x4b, 0x15, 0x04, 0x50, 0x61, 0xb1},
+				CustomParams.PubKeyHashAddrID),
+			f: func() (btcutil.Address, error) {
+				pkHash := []byte{
+					0x13, 0xc6, 0x0d, 0x8e, 0x68, 0xd7, 0x34, 0x9f, 0x5b, 0x4c,
+					0xa3, 0x62, 0xc3, 0x95, 0x4b, 0x15, 0x04, 0x50, 0x61, 0xb1}
+				return btcutil.NewAddressPubKeyHash(pkHash, &customParams)
+			},
+			net: &customParams,
 		},
 		{
 			name:    "testnet p2pkh",
@@ -146,6 +185,24 @@ func TestAddresses(t *testing.T) {
 			net: &chaincfg.MainNetParams,
 		},
 		{
+			name:    "custom mainnet P2SH ",
+			addr:    "MVcg9uEvtWuP5N6V48EHfEtbz48qR8TKZ9",
+			encoded: "MVcg9uEvtWuP5N6V48EHfEtbz48qR8TKZ9",
+			valid:   true,
+			result: btcutil.TstAddressScriptHash(
+				[ripemd160.Size]byte{
+					0xee, 0x34, 0xac, 0x67, 0x6b, 0xda, 0xf6, 0xe3, 0x70, 0xc8,
+					0xc8, 0x20, 0xb9, 0x48, 0xed, 0xfa, 0xd3, 0xa8, 0x73, 0xd8},
+				CustomParams.ScriptHashAddrID),
+			f: func() (btcutil.Address, error) {
+				pkHash := []byte{
+					0xEE, 0x34, 0xAC, 0x67, 0x6B, 0xDA, 0xF6, 0xE3, 0x70, 0xC8,
+					0xC8, 0x20, 0xB9, 0x48, 0xED, 0xFA, 0xD3, 0xA8, 0x73, 0xD8}
+				return btcutil.NewAddressScriptHashFromHash(pkHash, &customParams)
+			},
+			net: &customParams,
+		},
+		{
 			// Taken from transactions:
 			// output: b0539a45de13b3e0403909b8bd1a555b8cbe45fd4e3f3fda76f3a5f52835c29d
 			// input: (not yet redeemed at time test was written)
@@ -185,7 +242,6 @@ func TestAddresses(t *testing.T) {
 			},
 			net: &chaincfg.TestNet3Params,
 		},
-
 		// Negative P2SH tests.
 		{
 			name:  "p2sh wrong hash length",
@@ -200,7 +256,6 @@ func TestAddresses(t *testing.T) {
 			},
 			net: &chaincfg.MainNetParams,
 		},
-
 		// Positive P2PK tests.
 		{
 			name:    "mainnet p2pk compressed (0x02)",
@@ -687,20 +742,22 @@ func TestAddresses(t *testing.T) {
 			// Perform type-specific calculations.
 			var saddr []byte
 			switch d := decoded.(type) {
-			case *btcutil.AddressPubKeyHash:
+			case *utilbtc.AddressPubKeyHash:
 				saddr = btcutil.TstAddressSAddr(encoded)
 
-			case *btcutil.AddressScriptHash:
+			case *utilbtc.AddressScriptHash:
 				saddr = btcutil.TstAddressSAddr(encoded)
 
-			case *btcutil.AddressPubKey:
+			case *utilbtc.AddressPubKey:
 				// Ignore the error here since the script
 				// address is checked below.
 				saddr, _ = hex.DecodeString(d.String())
-			case *btcutil.AddressWitnessPubKeyHash:
+			case *utilbtc.AddressWitnessPubKeyHash:
 				saddr = btcutil.TstAddressSegwitSAddr(encoded)
-			case *btcutil.AddressWitnessScriptHash:
+			case *utilbtc.AddressWitnessScriptHash:
 				saddr = btcutil.TstAddressSegwitSAddr(encoded)
+			default:
+				fmt.Printf("what the %v", reflect.TypeOf(d))
 			}
 
 			// Check script address, as well as the Hash160 method for P2PKH and
